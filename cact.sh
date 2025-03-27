@@ -3,6 +3,11 @@
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# If the script is a symlink, get the actual directory
+if [ -L "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_DIR="$( cd "$( dirname "$(readlink -f "${BASH_SOURCE[0]}")" )" && pwd )"
+fi
+
 # Create a virtual environment in the user's home directory
 VENV_DIR="$HOME/.cact-venv"
 
@@ -84,7 +89,7 @@ setup_venv() {
     fi
     
     # Install the package
-    echo "Installing package..."
+    echo "Installing package from: $SCRIPT_DIR"
     if ! pip install -e "$SCRIPT_DIR"; then
         echo "Error: Failed to install required packages"
         exit 1

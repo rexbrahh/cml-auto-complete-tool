@@ -4,7 +4,8 @@ AI-powered command generation module using Claude
 import os
 import logging
 import sys
-from typing import Optional, Tuple
+import re
+from typing import Optional, Tuple, Dict, List, Any
 
 try:
     import anthropic
@@ -50,12 +51,35 @@ DEBUG_MODE = os.environ.get("CACT_DEBUG", "").lower() in ["true", "1", "yes"]
 if DEBUG_MODE:
     logger.info("Running in DEBUG_MODE - API calls will be simulated")
 
+# Parse version numbers
+def parse_version(version_str: str) -> tuple:
+    """Parse version string into tuple for comparison"""
+    if not version_str or version_str == "Not installed" or version_str == "Error getting version":
+        return (0, 0, 0)
+    
+    # Extract version numbers
+    match = re.match(r'(\d+)\.(\d+)\.(\d+)', version_str)
+    if match:
+        return tuple(map(int, match.groups()))
+    return (0, 0, 0)
+
+# Get version information
+ANTHROPIC_VERSION_TUPLE = parse_version(ANTHROPIC_VERSION)
+IS_ANTHROPIC_V0 = ANTHROPIC_VERSION_TUPLE[0] == 0
+logger.info(f"Anthropic version tuple: {ANTHROPIC_VERSION_TUPLE}")
+logger.info(f"Using V0 API: {IS_ANTHROPIC_V0}")
+
 class CommandGenerator:
     def __init__(self):
         """Initialize the command generator with Anthropic API"""
         self.config = Config()
         self.client = None
-        self.model = "claude-3.7-sonnet"  # Latest Claude model
+        # Use correct model name format based on API version
+        if IS_ANTHROPIC_V0:
+            self.model = "claude-3-sonnet-20240229"  # Legacy format for v0 API
+        else:
+            self.model = "claude-3-sonnet"  # New format for v1+ API
+        
         self.conversation_history = []
         self.auth_error = False
         
@@ -76,26 +100,20 @@ class CommandGenerator:
             if len(api_key) > 8:
                 logger.info(f"API key format: {api_key[:4]}...{api_key[-4:]} (length: {len(api_key)})")
                 # Check for expected Anthropic key format
-                if not api_key.startswith("sk-ant-"):
-                    logger.warning("API key doesn't have expected 'sk-ant-' prefix")
+                if not api_key.startswith("sk-ant-") and not api_key.startswith("sk-"):
+                    logger.warning("API key doesn't have expected 'sk-ant-' or 'sk-' prefix")
             else:
                 logger.warning("API key too short")
             
-            # Try both modern and legacy client initialization
-            try:
-                # Modern Anthropic client (v0.5.0+)
+            # Try initialization based on version
+            if IS_ANTHROPIC_V0:
+                # Legacy Anthropic client
                 self.client = anthropic.Anthropic(api_key=api_key)
-                logger.info("Using modern Anthropic client")
-            except Exception as e1:
-                logger.warning(f"Failed to initialize modern client: {str(e1)}")
-                try:
-                    # Legacy Anthropic client
-                    # @ts-ignore
-                    self.client = anthropic.Client(api_key=api_key)
-                    logger.info("Using legacy Anthropic client")
-                except Exception as e2:
-                    logger.error(f"Failed to initialize legacy client: {str(e2)}")
-                    raise
+                logger.info("Initialized v0 Anthropic client")
+            else:
+                # Modern Anthropic client
+                self.client = anthropic.Anthropic(api_key=api_key)
+                logger.info("Initialized v1+ Anthropic client")
                 
         except Exception as e:
             logger.error(f"Error initializing client: {str(e)}")
@@ -132,6 +150,31 @@ class CommandGenerator:
         # Default response
         return None
 
+    def _call_anthropic_api(self, messages: List[Dict[str, str]], system_message: str) -> Dict[str, Any]:
+        """Make API call with version-specific format"""
+        try:
+            if IS_ANTHROPIC_V0:
+                # Legacy API format (v0)
+                return self.client.messages.create(
+                    model=self.model,
+                    max_tokens=150,
+                    temperature=0.7,
+                    system=system_message,
+                    messages=messages
+                )
+            else:
+                # Modern API format (v1+)
+                return self.client.messages.create(
+                    model=self.model,
+                    max_tokens=150,
+                    temperature=0.7,
+                    system=system_message,
+                    messages=messages
+                )
+        except Exception as e:
+            logger.error(f"API call error: {str(e)}")
+            raise
+
     def handle_casual_input(self, user_input: str) -> Optional[str]:
         """
         Handle casual conversation and greetings
@@ -165,14 +208,8 @@ class CommandGenerator:
             Format your response as:
             RESPONSE: <direct response or empty>"""
             
-            # Get response from Claude
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=150,
-                temperature=0.7,
-                system=system_message,
-                messages=self.conversation_history
-            )
+            # Get response from Claude using version-specific call
+            message = self._call_anthropic_api(self.conversation_history, system_message)
             
             # Parse the response
             response_text = message.content[0].text
@@ -190,7 +227,7 @@ class CommandGenerator:
             # Check if it's an authentication error
             if "authentication_error" in str(e) or "invalid" in str(e) and "api-key" in str(e):
                 self.auth_error = True
-                return "API authentication error: Please verify your API key is correct and has access to the Claude model. Try CACT_DEBUG=true for offline development."
+                return "API authentication error: Please verify your API key is correct and has access to the Claude model. Try 'export CACT_DEBUG=true' for offline mode."
             
             # Generic error
             return "I'm having trouble processing your request right now."
@@ -226,7 +263,7 @@ class CommandGenerator:
             # Then try command generation
             command = self._mock_response(user_input, "command")
             if command:
-                return command, "Generated command in debug mode"
+                return command, None
             return None, "I couldn't understand that request in debug mode. Try 'list files' or 'current directory'."
             
         try:
@@ -247,14 +284,8 @@ class CommandGenerator:
             COMMAND: <command or empty>
             QUESTION: <direct question or empty>"""
             
-            # Get response from Claude
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=150,
-                temperature=0.5,
-                system=system_message,
-                messages=self.conversation_history
-            )
+            # Get response from Claude using version-specific call
+            message = self._call_anthropic_api(self.conversation_history, system_message)
             
             # Parse the response
             response_text = message.content[0].text
@@ -279,7 +310,7 @@ class CommandGenerator:
             # Check if it's an authentication error
             if "authentication_error" in str(e) or "invalid" in str(e) and "api-key" in str(e):
                 self.auth_error = True
-                return None, "API authentication error: Please verify your API key is correct and has access to the Claude model. Try CACT_DEBUG=true for offline development."
+                return None, "API authentication error: Please verify your API key is correct and has access to the Claude model. Try 'export CACT_DEBUG=true' for offline mode."
             
             # Generic error
             return None, "I'm having trouble processing your request right now."
@@ -287,4 +318,4 @@ class CommandGenerator:
         except Exception as e:
             # Log other errors
             logger.error(f"Error generating command: {str(e)}")
-            return None, "I encountered an unexpected issue. Please try again." 
+            return None, "I encountered an unexpected issue. Please try the DEBUG_MODE." 

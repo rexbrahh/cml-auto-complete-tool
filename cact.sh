@@ -14,13 +14,32 @@ command_exists() {
 # Function to create and setup virtual environment
 setup_venv() {
     echo "Setting up virtual environment..."
-    if ! python3 -m venv "$VENV_DIR"; then
-        echo "Error: Failed to create virtual environment"
+    
+    # First try to create venv with system packages
+    if ! python3 -m venv "$VENV_DIR" --system-site-packages; then
+        echo "Warning: Failed to create venv with system packages, trying without..."
+        if ! python3 -m venv "$VENV_DIR"; then
+            echo "Error: Failed to create virtual environment"
+            exit 1
+        fi
+    fi
+    
+    # Activate virtual environment
+    if ! source "$VENV_DIR/bin/activate"; then
+        echo "Error: Failed to activate virtual environment"
         exit 1
     fi
     
-    # Activate virtual environment and install/upgrade the package
-    if ! source "$VENV_DIR/bin/activate" && pip install --upgrade pip && pip install -e "$SCRIPT_DIR"; then
+    # Upgrade pip and install wheel
+    echo "Upgrading pip and installing wheel..."
+    if ! pip install --upgrade pip wheel setuptools; then
+        echo "Error: Failed to upgrade pip and install wheel"
+        exit 1
+    fi
+    
+    # Install the package
+    echo "Installing package..."
+    if ! pip install -e "$SCRIPT_DIR"; then
         echo "Error: Failed to install required packages"
         exit 1
     fi

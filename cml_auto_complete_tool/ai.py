@@ -3,9 +3,19 @@ AI-powered command generation module using Claude
 """
 import os
 import logging
+import sys
 from typing import Optional, Tuple
 
-import anthropic
+try:
+    import anthropic
+    # Get the anthropic library version for debugging
+    ANTHROPIC_VERSION = anthropic.__version__
+except ImportError:
+    anthropic = None
+    ANTHROPIC_VERSION = "Not installed"
+except Exception:
+    ANTHROPIC_VERSION = "Error getting version"
+
 from dotenv import load_dotenv
 
 from .config import Config
@@ -19,11 +29,26 @@ if not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
     
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.INFO,  # Changed to INFO to capture more details
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     filename=os.path.join(log_dir, 'cact.log')
 )
 logger = logging.getLogger('cact')
+
+# Enable console output for critical errors
+console = logging.StreamHandler()
+console.setLevel(logging.CRITICAL)
+logger.addHandler(console)
+
+# Log system and library information for debugging
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Anthropic library version: {ANTHROPIC_VERSION}")
+logger.info(f"Operating system: {sys.platform}")
+
+# Enable debug mode for offline development without API keys
+DEBUG_MODE = os.environ.get("CACT_DEBUG", "").lower() in ["true", "1", "yes"]
+if DEBUG_MODE:
+    logger.info("Running in DEBUG_MODE - API calls will be simulated")
 
 class CommandGenerator:
     def __init__(self):
@@ -33,7 +58,12 @@ class CommandGenerator:
         self.model = "claude-3.7-sonnet"  # Latest Claude model
         self.conversation_history = []
         self.auth_error = False
-        self._initialize_client()
+        
+        # Initialize client only if not in debug mode
+        if not DEBUG_MODE:
+            self._initialize_client()
+        else:
+            logger.info("Skipping API client initialization in debug mode")
 
     def _initialize_client(self) -> None:
         """Initialize the Anthropic client with API key"""
@@ -42,15 +72,65 @@ class CommandGenerator:
             raise ValueError("API key not configured. Please run 'cact init' to set up your API key.")
         
         try:
-            self.client = anthropic.Anthropic(api_key=api_key)
-            # Log API key info for debugging (just first/last 4 chars)
+            # Log API key format info for debugging (just first/last 4 chars)
             if len(api_key) > 8:
                 logger.info(f"API key format: {api_key[:4]}...{api_key[-4:]} (length: {len(api_key)})")
+                # Check for expected Anthropic key format
+                if not api_key.startswith("sk-ant-"):
+                    logger.warning("API key doesn't have expected 'sk-ant-' prefix")
             else:
                 logger.warning("API key too short")
+            
+            # Try both modern and legacy client initialization
+            try:
+                # Modern Anthropic client (v0.5.0+)
+                self.client = anthropic.Anthropic(api_key=api_key)
+                logger.info("Using modern Anthropic client")
+            except Exception as e1:
+                logger.warning(f"Failed to initialize modern client: {str(e1)}")
+                try:
+                    # Legacy Anthropic client
+                    # @ts-ignore
+                    self.client = anthropic.Client(api_key=api_key)
+                    logger.info("Using legacy Anthropic client")
+                except Exception as e2:
+                    logger.error(f"Failed to initialize legacy client: {str(e2)}")
+                    raise
+                
         except Exception as e:
             logger.error(f"Error initializing client: {str(e)}")
             self.auth_error = True
+
+    def _mock_response(self, query: str, response_type: str = "command") -> str:
+        """Generate mock responses for debug mode"""
+        query = query.lower()
+        
+        if response_type == "casual":
+            if "hi" in query or "hello" in query:
+                return "Hello! How can I help you with terminal commands today?"
+            if "who are you" in query:
+                return "I'm an AI assistant that helps with terminal commands. I'm currently in debug mode."
+            if "help" in query:
+                return "I can help translate natural language to terminal commands. Just describe what you want to do."
+            return None
+            
+        # Command responses
+        if "list" in query and "file" in query:
+            return "ls -la"
+        if "current directory" in query:
+            return "pwd"
+        if "make directory" in query:
+            parts = query.split("directory")
+            if len(parts) > 1:
+                dir_name = parts[1].strip()
+                return f"mkdir {dir_name}"
+            return "mkdir new_directory"
+        if "search" in query or "find" in query:
+            search_term = query.split("for")[-1].strip() if "for" in query else "pattern"
+            return f"grep -r '{search_term}' ."
+        
+        # Default response
+        return None
 
     def handle_casual_input(self, user_input: str) -> Optional[str]:
         """
@@ -64,7 +144,14 @@ class CommandGenerator:
         """
         # Return quickly if we already know there's an auth error
         if self.auth_error:
-            return "I'm having trouble with my API connection. Please try resetting your API key with 'cact reset' and then 'cact init'."
+            return "I'm having trouble with my API connection. Please try resetting your API key with 'cact reset' and then 'cact init'. If you're developing, set CACT_DEBUG=true for offline mode."
+        
+        # Use mock response in debug mode    
+        if DEBUG_MODE:
+            response = self._mock_response(user_input, "casual")
+            if response:
+                return response
+            return None
             
         try:
             # Add user input to conversation history
@@ -103,7 +190,7 @@ class CommandGenerator:
             # Check if it's an authentication error
             if "authentication_error" in str(e) or "invalid" in str(e) and "api-key" in str(e):
                 self.auth_error = True
-                return "I'm having trouble with my API connection. Please check your API key with 'cact reset' and then 'cact init'."
+                return "API authentication error: Please verify your API key is correct and has access to the Claude model. Try CACT_DEBUG=true for offline development."
             
             # Generic error
             return "I'm having trouble processing your request right now."
@@ -127,7 +214,20 @@ class CommandGenerator:
         """
         # Return quickly if we already know there's an auth error
         if self.auth_error:
-            return None, "I'm having trouble with my API connection. Please try resetting your API key with 'cact reset' and then 'cact init'."
+            return None, "I'm having trouble with my API connection. Please try resetting your API key with 'cact reset' and then 'cact init'. If you're developing, set CACT_DEBUG=true for offline mode."
+        
+        # Use mock responses in debug mode
+        if DEBUG_MODE:
+            # First try casual handling
+            casual_response = self._mock_response(user_input, "casual")
+            if casual_response:
+                return None, casual_response
+                
+            # Then try command generation
+            command = self._mock_response(user_input, "command")
+            if command:
+                return command, "Generated command in debug mode"
+            return None, "I couldn't understand that request in debug mode. Try 'list files' or 'current directory'."
             
         try:
             # First, try to handle casual conversation
@@ -179,7 +279,7 @@ class CommandGenerator:
             # Check if it's an authentication error
             if "authentication_error" in str(e) or "invalid" in str(e) and "api-key" in str(e):
                 self.auth_error = True
-                return None, "I'm having trouble with my API connection. Please check your API key with 'cact reset' and then 'cact init'."
+                return None, "API authentication error: Please verify your API key is correct and has access to the Claude model. Try CACT_DEBUG=true for offline development."
             
             # Generic error
             return None, "I'm having trouble processing your request right now."

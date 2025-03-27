@@ -2,6 +2,7 @@
 AI-powered command generation module using Claude
 """
 import os
+import logging
 from typing import Optional, Tuple
 
 import anthropic
@@ -12,6 +13,18 @@ from .config import Config
 # Load environment variables
 load_dotenv()
 
+# Set up logging to file
+log_dir = os.path.expanduser("~/.cact-venv")
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir, exist_ok=True)
+    
+logging.basicConfig(
+    level=logging.ERROR,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename=os.path.join(log_dir, 'cact.log')
+)
+logger = logging.getLogger('cact')
+
 class CommandGenerator:
     def __init__(self):
         """Initialize the command generator with Anthropic API"""
@@ -19,6 +32,7 @@ class CommandGenerator:
         self.client = None
         self.model = "claude-3.7-sonnet"  # Latest Claude model
         self.conversation_history = []
+        self.auth_error = False
         self._initialize_client()
 
     def _initialize_client(self) -> None:
@@ -26,7 +40,17 @@ class CommandGenerator:
         api_key = self.config.get_api_key()
         if not api_key:
             raise ValueError("API key not configured. Please run 'cact init' to set up your API key.")
-        self.client = anthropic.Anthropic(api_key=api_key)
+        
+        try:
+            self.client = anthropic.Anthropic(api_key=api_key)
+            # Log API key info for debugging (just first/last 4 chars)
+            if len(api_key) > 8:
+                logger.info(f"API key format: {api_key[:4]}...{api_key[-4:]} (length: {len(api_key)})")
+            else:
+                logger.warning("API key too short")
+        except Exception as e:
+            logger.error(f"Error initializing client: {str(e)}")
+            self.auth_error = True
 
     def handle_casual_input(self, user_input: str) -> Optional[str]:
         """
@@ -38,6 +62,10 @@ class CommandGenerator:
         Returns:
             Optional[str]: A friendly response or None if not a casual input
         """
+        # Return quickly if we already know there's an auth error
+        if self.auth_error:
+            return "I'm having trouble with my API connection. Please try resetting your API key with 'cact reset' and then 'cact init'."
+            
         try:
             # Add user input to conversation history
             self.conversation_history.append({"role": "user", "content": user_input})
@@ -68,9 +96,22 @@ class CommandGenerator:
                     return response
             return None
             
+        except anthropic.APIError as e:
+            # Log error but don't show technical details to user
+            logger.error(f"API error in casual input: {str(e)}")
+            
+            # Check if it's an authentication error
+            if "authentication_error" in str(e) or "invalid" in str(e) and "api-key" in str(e):
+                self.auth_error = True
+                return "I'm having trouble with my API connection. Please check your API key with 'cact reset' and then 'cact init'."
+            
+            # Generic error
+            return "I'm having trouble processing your request right now."
+            
         except Exception as e:
-            print(f"Error handling casual input: {str(e)}")
-            return None
+            # Log other errors
+            logger.error(f"Error handling casual input: {str(e)}")
+            return "I encountered an unexpected issue. Please try again."
 
     def generate_command(self, user_input: str) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -84,6 +125,10 @@ class CommandGenerator:
                 - command: The generated command or None if more information is needed
                 - follow_up_question: A question to ask the user if more information is needed
         """
+        # Return quickly if we already know there's an auth error
+        if self.auth_error:
+            return None, "I'm having trouble with my API connection. Please try resetting your API key with 'cact reset' and then 'cact init'."
+            
         try:
             # First, try to handle casual conversation
             casual_response = self.handle_casual_input(user_input)
@@ -127,6 +172,19 @@ class CommandGenerator:
             
             return command, question
             
+        except anthropic.APIError as e:
+            # Log error but don't show technical details to user
+            logger.error(f"API error in command generation: {str(e)}")
+            
+            # Check if it's an authentication error
+            if "authentication_error" in str(e) or "invalid" in str(e) and "api-key" in str(e):
+                self.auth_error = True
+                return None, "I'm having trouble with my API connection. Please check your API key with 'cact reset' and then 'cact init'."
+            
+            # Generic error
+            return None, "I'm having trouble processing your request right now."
+            
         except Exception as e:
-            print(f"Error generating command: {str(e)}")
-            return None, None 
+            # Log other errors
+            logger.error(f"Error generating command: {str(e)}")
+            return None, "I encountered an unexpected issue. Please try again." 

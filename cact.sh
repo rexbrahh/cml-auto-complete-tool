@@ -13,27 +13,59 @@ command_exists() {
 
 # Function to get Python version
 get_python_version() {
-    python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
+    "$1" -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
+}
+
+# Function to find Python 3.9
+find_python3_9() {
+    # Common locations for Python 3.9
+    PYTHON_LOCATIONS=(
+        "/usr/local/bin/python3.9"
+        "/usr/bin/python3.9"
+        "/opt/homebrew/bin/python3.9"
+        "/usr/local/opt/python@3.9/bin/python3.9"
+        "$HOME/.pyenv/versions/3.9.*/bin/python3.9"
+    )
+    
+    for location in "${PYTHON_LOCATIONS[@]}"; do
+        if [ -f "$location" ]; then
+            echo "$location"
+            return 0
+        fi
+    done
+    
+    # Try to find using which
+    if command_exists python3.9; then
+        which python3.9
+        return 0
+    fi
+    
+    return 1
 }
 
 # Function to create and setup virtual environment
 setup_venv() {
     echo "Setting up virtual environment..."
     
-    # Try to use Python 3.9 if available (more stable for venv)
-    PYTHON_CMD="python3"
-    if command_exists python3.9; then
-        PYTHON_CMD="python3.9"
-        echo "Using Python 3.9 for better compatibility..."
+    # Try to find Python 3.9
+    PYTHON_3_9=$(find_python3_9)
+    if [ -n "$PYTHON_3_9" ]; then
+        echo "Found Python 3.9 at: $PYTHON_3_9"
+        PYTHON_CMD="$PYTHON_3_9"
+    else
+        echo "Warning: Python 3.9 not found, falling back to system Python"
+        PYTHON_CMD="python3"
     fi
     
     # Remove existing venv if it exists
     if [ -d "$VENV_DIR" ]; then
+        echo "Removing existing virtual environment..."
         rm -rf "$VENV_DIR"
     fi
     
     # Create new venv
-    if ! $PYTHON_CMD -m venv "$VENV_DIR"; then
+    echo "Creating new virtual environment with: $PYTHON_CMD"
+    if ! "$PYTHON_CMD" -m venv "$VENV_DIR"; then
         echo "Error: Failed to create virtual environment"
         exit 1
     fi
@@ -66,8 +98,8 @@ if ! command_exists python3; then
 fi
 
 # Check Python version
-PYTHON_VERSION=$(get_python_version)
-echo "Using Python version: $PYTHON_VERSION"
+PYTHON_VERSION=$(get_python_version python3)
+echo "System Python version: $PYTHON_VERSION"
 
 # Check if virtual environment exists and is valid
 if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then

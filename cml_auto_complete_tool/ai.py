@@ -17,7 +17,7 @@ class CommandGenerator:
         """Initialize the command generator with Anthropic API"""
         self.config = Config()
         self.client = None
-        self.model = "claude-3-sonnet-20240229"  # Latest Claude model
+        self.model = "claude-3.7-sonnet"  # Latest Claude model
         self.conversation_history = []
         self._initialize_client()
 
@@ -25,7 +25,7 @@ class CommandGenerator:
         """Initialize the Anthropic client with API key"""
         api_key = self.config.get_api_key()
         if not api_key:
-            raise ValueError("API key not configured. Please run 'cml-auto-complete-tool -init' to set up your API key.")
+            raise ValueError("API key not configured. Please run 'cact init' to set up your API key.")
         self.client = anthropic.Anthropic(api_key=api_key)
 
     def handle_casual_input(self, user_input: str) -> Optional[str]:

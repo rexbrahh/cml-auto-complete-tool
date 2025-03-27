@@ -124,5 +124,5 @@ if ! source "$VENV_DIR/bin/activate"; then
     setup_venv
 fi
 
-# Run the command using the Python module directly
-python -m cml_auto_complete_tool.cli "$@" 
+# Run the command using the venv Python directly - explicitly use the interpreter from the venv
+"$VENV_DIR/bin/python" -m cml_auto_complete_tool.cli "$@" 

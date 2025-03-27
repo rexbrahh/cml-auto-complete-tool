@@ -11,17 +11,31 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to get Python version
+get_python_version() {
+    python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))'
+}
+
 # Function to create and setup virtual environment
 setup_venv() {
     echo "Setting up virtual environment..."
     
-    # First try to create venv with system packages
-    if ! python3 -m venv "$VENV_DIR" --system-site-packages; then
-        echo "Warning: Failed to create venv with system packages, trying without..."
-        if ! python3 -m venv "$VENV_DIR"; then
-            echo "Error: Failed to create virtual environment"
-            exit 1
-        fi
+    # Try to use Python 3.9 if available (more stable for venv)
+    PYTHON_CMD="python3"
+    if command_exists python3.9; then
+        PYTHON_CMD="python3.9"
+        echo "Using Python 3.9 for better compatibility..."
+    fi
+    
+    # Remove existing venv if it exists
+    if [ -d "$VENV_DIR" ]; then
+        rm -rf "$VENV_DIR"
+    fi
+    
+    # Create new venv
+    if ! $PYTHON_CMD -m venv "$VENV_DIR"; then
+        echo "Error: Failed to create virtual environment"
+        exit 1
     fi
     
     # Activate virtual environment
@@ -51,6 +65,10 @@ if ! command_exists python3; then
     exit 1
 fi
 
+# Check Python version
+PYTHON_VERSION=$(get_python_version)
+echo "Using Python version: $PYTHON_VERSION"
+
 # Check if virtual environment exists and is valid
 if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then
     setup_venv
@@ -59,7 +77,6 @@ fi
 # Try to activate the virtual environment
 if ! source "$VENV_DIR/bin/activate"; then
     echo "Error: Virtual environment is corrupted. Recreating..."
-    rm -rf "$VENV_DIR"
     setup_venv
 fi
 

@@ -117,5 +117,5 @@ if ! source "$VENV_DIR/bin/activate"; then
     setup_venv
 fi
 
-# Run the command with all arguments passed through
-cact "$@" 
+# Run the command using the Python module directly
+python -m cml_auto_complete_tool.cli "$@" 

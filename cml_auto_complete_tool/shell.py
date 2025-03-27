@@ -2,24 +2,51 @@
 Interactive shell implementation for CML Auto-Complete Tool
 """
 import os
+import sys
 from typing import Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
-from rich.console import Console
-from rich.prompt import Confirm
+from prompt_toolkit.history import InMemoryHistory
 
 from .ai import CommandGenerator
 from .command import CommandExecutor
 
-console = Console()
+def print_color(text: str, color: str = None) -> None:
+    """Print colored text if supported, otherwise plain text"""
+    colors = {
+        'red': '\033[91m',
+        'green': '\033[92m',
+        'blue': '\033[94m',
+        'yellow': '\033[93m',
+        'bold': '\033[1m',
+        'end': '\033[0m'
+    }
+    
+    try:
+        if color and color in colors and os.getenv('TERM') != 'dumb':
+            print(f"{colors[color]}{text}{colors['end']}")
+        else:
+            print(text)
+    except:
+        print(text)
+
+def ask_confirmation(prompt: str) -> bool:
+    """Ask for user confirmation"""
+    while True:
+        response = input(f"{prompt} (y/n) ").lower().strip()
+        if response in ['y', 'yes']:
+            return True
+        if response in ['n', 'no']:
+            return False
+        print("Please answer 'y' or 'n'")
 
 class InteractiveShell:
     def __init__(self):
-        self.session = PromptSession()
+        self.history = InMemoryHistory()
+        self.session = PromptSession(history=self.history)
         self.command_generator = CommandGenerator()
         self.command_executor = CommandExecutor()
-        self.history: list[str] = []
         
         # Basic command completions
         self.completer = WordCompleter([
@@ -30,17 +57,16 @@ class InteractiveShell:
 
     def run(self) -> None:
         """Run the interactive shell"""
-        console.print("[bold green]Welcome to CML Auto-Complete Tool![/bold green]")
-        console.print("Type your request in natural language, and I'll help you find the right command.")
-        console.print("Type 'exit' or 'quit' to end the session.\n")
+        print_color("Welcome to CML Auto-Complete Tool!", "green")
+        print("Feel free to say hi or just tell me what command you're looking for.")
+        print("Type 'exit' or 'quit' to end the session.\n")
 
         while True:
             try:
                 # Get user input
                 user_input = self.session.prompt(
                     "> ",
-                    completer=self.completer,
-                    history=self.history
+                    completer=self.completer
                 ).strip()
 
                 if user_input.lower() in ["exit", "quit"]:
@@ -49,41 +75,45 @@ class InteractiveShell:
                 if not user_input:
                     continue
 
-                # Generate command suggestion
-                command, question = self.command_generator.generate_command(user_input)
+                # Generate command suggestion or handle casual conversation
+                command, response = self.command_generator.generate_command(user_input)
+                
+                if not command and response:
+                    # This is a casual conversation response
+                    print_color(f"\n{response}", "blue")
+                    continue
                 
                 # Handle follow-up questions
-                while question:
-                    console.print(f"\n[bold blue]Question:[/bold blue] {question}")
+                while response and not command:
+                    print_color(f"\n{response}", "blue")
                     follow_up = self.session.prompt("> ").strip()
                     if follow_up.lower() in ["exit", "quit"]:
                         break
-                    command, question = self.command_generator.generate_command(follow_up)
+                    command, response = self.command_generator.generate_command(follow_up)
                 
-                if not command:
-                    console.print("[yellow]I couldn't generate a command for your request. Please try rephrasing.[/yellow]")
+                if not command and not response:
+                    print_color("I couldn't understand that request. Feel free to rephrase it or ask for help!", "yellow")
                     continue
 
                 # Show command and ask for confirmation
-                console.print(f"\n[bold]Suggested command:[/bold] {command}")
-                if Confirm.ask("Execute this command?"):
+                print_color(f"\nSuggested command: {command}", "bold")
+                    
+                if ask_confirmation("Would you like me to execute this command?"):
                     try:
                         result = self.command_executor.execute(command)
-                        console.print(f"\n[green]Command executed successfully![/green]")
+                        print_color("\nCommand executed successfully!", "green")
                         if result:
-                            console.print(f"\nOutput:\n{result}")
+                            print(f"\nOutput:\n{result}")
                     except ValueError as e:
-                        console.print(f"[red]Safety check failed: {str(e)}[/red]")
+                        print_color(f"Safety check failed: {str(e)}", "red")
                     except Exception as e:
-                        console.print(f"[red]Error executing command: {str(e)}[/red]")
-
-                self.history.append(user_input)
+                        print_color(f"Error executing command: {str(e)}", "red")
 
             except KeyboardInterrupt:
                 continue
             except EOFError:
                 break
             except Exception as e:
-                console.print(f"[red]Error: {str(e)}[/red]")
+                print_color(f"Error: {str(e)}", "red")
 
-        console.print("\n[bold green]Thank you for using CML Auto-Complete Tool![/bold green]") 
+        print_color("\nThanks for chatting! Have a great day!", "green") 

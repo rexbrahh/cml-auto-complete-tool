@@ -39,6 +39,7 @@ setup(
     entry_points={
         "console_scripts": [
             "cml-auto-complete-tool=cml_auto_complete_tool.cli:cli",
+            "cact=cml_auto_complete_tool.cli:cli",
         ],
     },
     package_data={

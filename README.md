@@ -45,11 +45,23 @@ cp .env.example .env
 ## Usage
 
 ```bash
-# Start the interactive shell
+# Start the interactive shell (using the full name)
 cml-auto-complete-tool
 
+# Or use the shorter alias
+cact
+
 # Specify a working directory
-cml-auto-complete-tool --dir /path/to/directory
+cact --dir /path/to/directory
+
+# Initialize the tool
+cact init
+
+# Reset configuration
+cact reset
+
+# Translate a single command
+cact translate "list all files in current directory"
 ```
 
 ## Development

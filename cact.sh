@@ -88,6 +88,13 @@ setup_venv() {
         exit 1
     fi
     
+    # Install dependencies from requirements.txt
+    echo "Installing dependencies from requirements.txt..."
+    if ! pip install -r "$SCRIPT_DIR/requirements.txt"; then
+        echo "Error: Failed to install dependencies"
+        exit 1
+    fi
+    
     # Install the package
     echo "Installing package from: $SCRIPT_DIR"
     if ! pip install -e "$SCRIPT_DIR"; then
